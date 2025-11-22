@@ -18,6 +18,13 @@ clean:
 	@echo "Cleaning pycache..."
 	find . -type d -name "__pycache__" -exec rm -rf {} +
 
+server:
+	$(UV) streamlit run app/main.py
+
+dummy-server: dummy-data
+	$(MAKE) ingest INPUT=./data/raw_downloads/dummy_season
+	$(MAKE) server
+
 # Usage: make ingest-dry INPUT=./downloads/2022
 ingest-dry:
 	$(UV) python src/ingest.py --input $(INPUT) --schema $(SCHEMA) --output $(OUTPUT) --dry-run
@@ -29,3 +36,10 @@ ingest:
 dump:
 	$(UV) python src/export.py --pool $(POOL) --num-plays $(NUM_PLAYS) --output $(DUMP_FILE)
 
+dummy-data:
+	$(UV) python scripts/generate_dummy_data.py
+
+diagnose:
+	mkdir tmp
+	$(MAKE) ingest | tee -a tmp/diagnose.log 
+	$(UV) python scripts/diagnose_pool.py | tee -a tmp/diagnose.log

@@ -23,8 +23,8 @@ class NGSIngestor:
         q = pl.scan_csv(file_path, infer_schema_length=10000, ignore_errors=True)
         
         # Get actual columns in this file
-        # actual_columns = q.columns
-        actual_columns = q.collect_schema().names()
+        actual_columns = q.columns
+        # actual_columns = q.collect_schema().names()
         
         selected_exprs = []
         
