@@ -4,6 +4,7 @@ import plotly.graph_objects as go
 import numpy as np
 import sys
 import os
+import traceback
 from pathlib import Path
 
 # Add parent dir to path so we can import src
@@ -68,117 +69,119 @@ try:
     # --- Main Area: Rendering ---
     st.title(f"Game {selected_game} | Play {selected_play_id}")
 
+    # RENDER PLAY BUTTON
     if st.button("Render Play 🎬", type="primary"):
-        with st.spinner("Fetching Tracking Data..."):
-            # 3. Fetch ONLY this play's data
-            play_df = (
-                q.filter(
-                    (pl.col("gameId") == selected_game) & 
-                    (pl.col("playId") == selected_play_id)
+            with st.spinner("Fetching Tracking Data..."):
+                # 3. Fetch ONLY this play's data
+                play_df = (
+                    q.filter(
+                        (pl.col("gameId") == selected_game) & 
+                        (pl.col("playId") == selected_play_id)
+                    )
+                    .sort("frameId")
+                    .collect()
                 )
-                .sort("frameId")
-                .collect()
+
+            # --- 🔍 DEBUG TOOL ---
+            # If you see a green screen, expand this in the UI to see WHY
+            with st.expander("Debug: Inspect Raw Data", expanded=False):
+                st.write("Columns:", play_df.columns)
+                st.write("First 5 rows:", play_df.head(5))
+                
+                # Check unique values in the column you are filtering on
+                # This helps you see if it's "Offense", "OFFENSE", or "home"
+                if "playerSide" in play_df.columns:
+                    st.write("Unique Sides:", play_df["playerSide"].unique().to_list())
+                elif "team" in play_df.columns:
+                    st.write("Unique Teams:", play_df["team"].unique().to_list())
+
+            # --- Data Split (Robust) ---
+            # We use .str.to_lowercase() to be safe against "OFFENSE" vs "Offense"
+            # Adjust the column name "playerSide" if your schema renamed it to "player_side" or "team"
+            
+            # Check which column exists for the side/team
+            side_col = "playerSide" if "playerSide" in play_df.columns else "team"
+            
+            home = play_df.filter(pl.col(side_col).cast(pl.String).str.to_lowercase() == "offense")
+            away = play_df.filter(pl.col(side_col).cast(pl.String).str.to_lowercase() == "defense")
+            
+            # Robust Ball Check: 
+            # Usually ball has nflId=NaN OR team='football'. We check both to be safe.
+            ball = play_df.filter(
+                (pl.col("nflId").is_null()) | (pl.col("nflId") == 0) | (pl.col(side_col) == "football")
+            )
+            
+            # Check if we actually have a ball
+            has_ball = not ball.is_empty()
+
+            # Get Frames
+            frames = sorted(play_df["frameId"].unique().to_list())
+            if not frames:
+                st.error("No frames found for this play!")
+                st.stop()
+
+            # Create Figure
+            fig = go.Figure()
+
+            # Field Setup
+            fig.add_shape(type="rect", x0=0, y0=0, x1=120, y1=53.3, line=dict(color="white"), fillcolor="green", layer="below")
+            
+            # --- INITIAL TRACES (Frame 0) ---
+            # We use kwargs to allow empty data without crashing
+            
+            # Helper to get data safely
+            def get_xy(df, frame):
+                f_df = df.filter(pl.col("frameId") == frame)
+                return f_df["x"], f_df["y"]
+
+            h_x, h_y = get_xy(home, frames[0])
+            a_x, a_y = get_xy(away, frames[0])
+            
+            fig.add_trace(go.Scattergl(x=h_x, y=h_y, mode="markers", marker=dict(size=12, color="blue"), name="Offense"))
+            fig.add_trace(go.Scattergl(x=a_x, y=a_y, mode="markers", marker=dict(size=12, color="red"), name="Defense"))
+
+            if has_ball:
+                b_x, b_y = get_xy(ball, frames[0])
+                fig.add_trace(go.Scattergl(x=b_x, y=b_y, mode="markers", marker=dict(size=8, color="brown"), name="Ball"))
+
+            # --- ANIMATION FRAMES ---
+            animation_frames = []
+            for f in frames:
+                h_x, h_y = get_xy(home, f)
+                a_x, a_y = get_xy(away, f)
+                
+                frame_traces = [
+                    go.Scattergl(x=h_x, y=h_y),
+                    go.Scattergl(x=a_x, y=a_y)
+                ]
+                
+                if has_ball:
+                    b_x, b_y = get_xy(ball, f)
+                    frame_traces.append(go.Scattergl(x=b_x, y=b_y))
+                    
+                animation_frames.append(go.Frame(data=frame_traces, name=str(f)))
+
+            fig.frames = animation_frames
+
+            # Layout Settings
+            fig.update_layout(
+                height=600,
+                xaxis=dict(range=[0, 120], showgrid=False, zeroline=False, visible=False), # Hide axes for cleaner look
+                yaxis=dict(range=[0, 53.3], showgrid=False, zeroline=False, visible=False),
+                updatemenus=[dict(
+                    type="buttons",
+                    showactive=False,
+                    buttons=[dict(
+                        label="▶ Play",
+                        method="animate",
+                        args=[None, dict(frame=dict(duration=100, redraw=False), fromcurrent=True)]
+                    )]
+                )]
             )
 
-        # --- The Optimizer: Plotly WebGL Animation ---
-        
-        # Split data for easier plotting
-        home = play_df.filter(pl.col("playerSide") == "Offense")
-        away = play_df.filter(pl.col("playerSide") == "Defense")
-        ball = play_df.filter(pl.col("nflId") == 0)
-        if ball is None:
-            print(f"WARNING - No ball data found")
-        
-        # Get Frames
-        frames = sorted(play_df["frameId"].unique().to_list())
-        
-        # Create Figure
-        fig = go.Figure()
-
-        # Field Setup (Simplified 120x53.3)
-        fig.add_shape(type="rect", x0=0, y0=0, x1=120, y1=53.3, line=dict(color="white"), fillcolor="green", layer="below")
-        
-        # Add Initial Traces (Frame 0)
-        # We use Scattergl (WebGL) for performance instead of Scatter (SVG)
-        
-        # Home Team
-        fig.add_trace(go.Scattergl(
-            x=home.filter(pl.col("frameId") == frames[0])["x"],
-            y=home.filter(pl.col("frameId") == frames[0])["y"],
-            mode="markers",
-            marker=dict(size=12, color="blue"),
-            name="Offense"
-        ))
-        
-        # Away Team
-        fig.add_trace(go.Scattergl(
-            x=away.filter(pl.col("frameId") == frames[0])["x"],
-            y=away.filter(pl.col("frameId") == frames[0])["y"],
-            mode="markers",
-            marker=dict(size=12, color="red"),
-            name="Defense"
-        ))
-
-        # Ball
-        if ball is not None:
-            fig.add_trace(go.Scattergl(
-                x=ball.filter(pl.col("frameId") == frames[0])["x"],
-                y=ball.filter(pl.col("frameId") == frames[0])["y"],
-                mode="markers",
-                marker=dict(size=8, color="brown"),
-                name="Ball"
-            ))
-
-        # Construct Frames for Animation
-        # This part can be slow in Python loops. For production, optimize this list comp.
-        animation_frames = []
-        for f in frames:
-            frame_data = play_df.filter(pl.col("frameId") == f)
-            
-            home_f = frame_data.filter(pl.col("playerSide") == "Offense")
-            away_f = frame_data.filter(pl.col("playerSide") == "Defense")
-            if ball is not None:
-                ball_f = frame_data.filter(pl.col("nflId") == 0)
-            
-                animation_frames.append(go.Frame(
-                    data=[
-                        go.Scattergl(x=home_f["x"], y=home_f["y"]),
-                        go.Scattergl(x=away_f["x"], y=away_f["y"]),
-                        go.Scattergl(x=ball_f["x"], y=ball_f["y"])
-                    ],
-                    name=str(f)
-                ))
-            else:
-                animation_frames.append(go.Frame(
-                    data=[
-                        go.Scattergl(x=home_f["x"], y=home_f["y"]),
-                        go.Scattergl(x=away_f["x"], y=away_f["y"]),
-                    ],
-                    name=str(f)
-                ))
-
-
-        fig.frames = animation_frames
-
-        # Layout Settings
-        fig.update_layout(
-            width=1000,
-            height=600,
-            xaxis=dict(range=[0, 120], showgrid=False, zeroline=False),
-            yaxis=dict(range=[0, 53.3], showgrid=False, zeroline=False),
-            updatemenus=[dict(
-                type="buttons",
-                showactive=False,
-                buttons=[dict(
-                    label="Play",
-                    method="animate",
-                    args=[None, dict(frame=dict(duration=100, redraw=False), fromcurrent=True)]
-                )]
-            )]
-        )
-
-        st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True)
 except Exception as e:
     st.error(f"Runtime Error: {e}")
+    traceback.print_exc()
     st.write("Traceback details in terminal.")
     st.stop()

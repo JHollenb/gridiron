@@ -58,7 +58,7 @@ columns:
   # --- Player Metadata (Optional but helpful) ---
   - name: playerSide
     dtype: Categorical
-    aliases: ["playerSide", player_side"]
+    aliases: ["playerSide", "player_side"]
     allow_null: true
 
   - name: position
