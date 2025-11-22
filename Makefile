@@ -3,6 +3,7 @@
 # Python Env Variables
 UV = uv run
 SCHEMA = ./configs/schema.yaml
+INPUT ?= downloads/test_data
 OUTPUT = ./data/raw_pool
 
 setup:

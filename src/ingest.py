@@ -1,3 +1,4 @@
+# src/ingest.py
 import argparse
 import glob
 import os
@@ -10,8 +11,6 @@ class NGSIngestor:
         with open(schema_path, "r") as f:
             self.config = yaml.safe_load(f)
         self.output_dir = Path(output_dir)
-        self.target_cols = [c['name'] for c in self.config['target_columns']]
-        self.aliases = self.config.get('aliases', {})
 
     def load_and_normalize(self, file_path):
         """
@@ -19,28 +18,56 @@ class NGSIngestor:
         """
         print(f"Processing {file_path}...")
         
-        # Scan CSV (Lazy)
-        q = pl.scan_csv(file_path, ignore_errors=True)
+        # 1. Lazy Scan
+        # We don't provide schema_overrides here yet because names might be wrong
+        q = pl.scan_csv(file_path, infer_schema_length=10000, ignore_errors=True)
         
-        # 1. Rename columns based on alias map
-        # Create a mapping dict where key exists in schema
-        available_cols = q.columns
-        rename_map = {old: new for old, new in self.aliases.items() if old in available_cols}
-        q = q.rename(rename_map)
-
-        # 2. Select only target columns (fill missing with Null)
-        expressions = []
-        for col_def in self.config['target_columns']:
-            name = col_def['name']
-            dtype = getattr(pl, col_def['dtype'])
+        # Get actual columns in this file
+        # actual_columns = q.columns
+        actual_columns = q.collect_schema().names()
+        
+        selected_exprs = []
+        
+        # 2. Iterate through our Master Schema
+        for col_def in self.config['columns']:
+            target_name = col_def['name']
+            dtype_str = col_def['dtype']
+            dtype = getattr(pl, dtype_str)
             
-            if name in q.columns:
-                expressions.append(pl.col(name).cast(dtype))
+            # A. Find the source column using aliases
+            source_col = None
+            # Check the target name itself first, then aliases
+            candidates = [target_name] + col_def.get('aliases', [])
+            
+            for candidate in candidates:
+                if candidate in actual_columns:
+                    source_col = candidate
+                    break
+            
+            # B. Build the Expression
+            if source_col:
+                # Column exists: Rename -> Cast
+                expr = pl.col(source_col).cast(dtype).alias(target_name)
             else:
-                # Create null column if missing
-                expressions.append(pl.lit(None).cast(dtype).alias(name))
+                # Column missing: Generate Default
+                if 'default' in col_def:
+                    # Use provided default value
+                    default_val = col_def['default']
+                    expr = pl.lit(default_val).cast(dtype).alias(target_name)
+                elif col_def.get('allow_null', False):
+                    # Fill with Null
+                    expr = pl.lit(None).cast(dtype).alias(target_name)
+                else:
+                    # Skip or Error (depending on strictness preference)
+                    # For now, we skip, but you could raise ValueError here
+                    print(f"Warning: Missing required col '{target_name}' in {file_path}")
+                    continue
+
+            selected_exprs.append(expr)
+
+        # 3. Apply Transformations
+        q = q.select(selected_exprs)
         
-        q = q.select(expressions)
         return q
 
     def generate_summary(self, df: pl.DataFrame):
