@@ -85,3 +85,6 @@ df = db.sample_plays(
 │   └── query.py           # The Reader/Sampler
 └── README.md
 ````
+
+# Frontend
+See [this](https://www.kaggle.com/code/huntingdata11/plotly-animated-and-interactive-nfl-plays)
