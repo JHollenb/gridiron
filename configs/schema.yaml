@@ -1,0 +1,37 @@
+target_columns:
+  # The strict schema we want in our Parquet files
+  - name: gameId
+    dtype: Int64
+  - name: playId
+    dtype: Int64
+  - name: nflId
+    dtype: Int64
+    allow_null: true # The ball has no nflId
+  - name: frameId
+    dtype: Int64
+  - name: time
+    dtype: String
+  - name: x
+    dtype: Float64
+  - name: y
+    dtype: Float64
+  - name: s
+    dtype: Float64 # Speed
+  - name: a
+    dtype: Float64 # Acceleration
+  - name: dis
+    dtype: Float64 # Distance traveled
+  - name: jerseyNumber
+    dtype: Int32
+    allow_null: true
+  - name: team
+    dtype: Categorical
+
+# Maps old/weird column names to our target names
+aliases:
+  speed: s
+  acc: a
+  distance: dis
+  JerseyNumber: jerseyNumber
+  GameId: gameId
+  PlayId: playId
