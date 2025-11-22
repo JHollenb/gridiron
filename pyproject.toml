@@ -1,7 +1,13 @@
 [project]
-name = "gridiron"
+name = "gridiron-ngs"
 version = "0.1.0"
-description = "Add your description here"
+description = "NFL NGS Data Processing Pipeline"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "polars>=0.20.0",
+    "pyarrow>=14.0.0",
+    "numpy>=1.26.0",
+    "pyyaml>=6.0",
+]
+
