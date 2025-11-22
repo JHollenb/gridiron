@@ -1,73 +1,86 @@
-# schema.yaml
-# Polars-compatible schema for NFL Big Data Bowl 2026 - Prediction dataset
-# Optimized for fast ingestion with correct dtypes and categorical handling
+# configs/schema.yaml
+defaults:
+  strict_columns: false
 
-input_schema:
-  game_id:                   Int64
-  play_id:                   Int32
-  player_to_predict:         Boolean              # only present in input files
-  nfl_id:                    Int32
-  frame_id:                  Int16
-  play_direction:           Categorical           # "left" or "right" → use Categorical for speed
-  absolute_yardline_number:  UInt8                 # 10–90 range, fits in UInt8
-  player_name:               String
-  player_height:             String                # kept as string ("6-2") to avoid parsing issues
-  player_weight:             UInt16                # lbs, max ~380
-  player_birth_date:         String                # yyyy-mm-dd, parse later if needed
-  player_position:           Categorical           # e.g., QB, WR, CB, etc.
-  player_side:               Categorical           # "Offense" or "Defense"
-  player_role:               Categorical           # Targeted Receiver, Defensive Coverage, Passer, Other Route Runner
-  x:                         Float32
-  y:                         Float32
-  s:                         Float32               # speed in yards/sec
-  a:                         Float32               # acceleration
-  o:                         Float32               # orientation (degrees)
-  dir:                       Float32               # direction of motion (degrees)
-  num_frames_output:         UInt8                 # typically 10–30 → fits UInt8
-  ball_land_x:               Float32
-  ball_land_y:               Float32
+columns:
+  # --- Identifiers ---
+  - name: gameId
+    dtype: Int64
+    aliases: ["gameId", "game_id", "GameId"]
 
-output_schema:
-  game_id:                   Int64
-  play_id:                   Int32
-  nfl_id:                    Int32
-  frame_id:                  Int16
-  x:                         Float32               # TARGET
-  y:                         Float32               # TARGET
+  - name: playId
+    dtype: Int32
+    aliases: ["playId", "play_id", "PlayId"]
 
-# Used for test.csv (submission index file)
-submission_schema:
-  id:                        Int64                 # row identifier for submission
-  game_id:                   Int64
-  play_id:                   Int32
-  nfl_id:                    Int32
-  frame_id:                  Int16
+  - name: nflId
+    dtype: Int32
+    aliases: ["nflId", "nfl_id", "NflId"]
+    allow_null: true
 
-# Recommended Polars read_csv options when using this schema
-read_csv_options:
-  schema_overrides:
-    # Apply the correct dtypes directly at read time
-    game_id: pl.Int64
-    play_id: pl.Int32
-    nfl_id: pl.Int32
-    frame_id: pl.Int16
-    player_to_predict: pl.Boolean
-    absolute_yardline_number: pl.UInt8
-    player_weight: pl.UInt16
-    num_frames_output: pl.UInt8
-    x: pl.Float32
-    y: pl.Float32
-    s: pl.Float32
-    a: pl.Float32
-    o: pl.Float32
-    dir: pl.Float32
-    ball_land_x: pl.Float32
-    ball_land_y: pl.Float32
-    play_direction: pl.Categorical
-    player_position: pl.Categorical
-    player_side: pl.Categorical
-    player_role: pl.Categorical
-  try_parse_dates: false                     # keep birth_date as string unless needed
-  use_pyarrow: false
-  rechunk: true
+  - name: frameId
+    dtype: Int32
+    aliases: ["frameId", "frame_id", "FrameId"]
+
+  # --- Time & Context ---
+  - name: time
+    dtype: String
+    aliases: ["time", "Time", "timestamp"]
+
+  - name: playDirection
+    dtype: Categorical
+    aliases: ["playDirection", "play_direction"]
+
+  - name: event
+    dtype: Categorical
+    aliases: ["event", "Event"]
+    allow_null: true # Not every frame has an event tag
+
+  - name: team
+    dtype: Categorical
+    aliases: ["team", "Team", "club", "Club"]
+
+  # --- Tracking Metrics (Physics) ---
+  - name: x
+    dtype: Float32
+    aliases: ["x", "X"]
+
+  - name: y
+    dtype: Float32
+    aliases: ["y", "Y"]
+
+  - name: s
+    dtype: Float32
+    aliases: ["s", "S", "speed"]
+    default: 0.0
+
+  - name: a
+    dtype: Float32
+    aliases: ["a", "A", "acc", "acceleration"]
+    default: 0.0
+
+  - name: dis                                      # TODO - what is this
+    dtype: Float32
+    aliases: ["dis", "distance"]
+    default: 0.0                                    
+
+  - name: o                                         # Orientation (degrees)
+    dtype: Float32
+    aliases: ["o", "O", "orientation"]
+    allow_null: true # Ball usually doesn't have orientation
+
+  - name: dir                                       # Direction of motion (degrees)
+    dtype: Float32
+    aliases: ["dir", "Dir", "direction"]
+    allow_null: true # Ball sometimes lacks direction if stationary, only exists in some data
+
+  # --- Player Metadata (Optional but helpful) ---
+  - name: position
+    dtype: Categorical
+    aliases: ["position", "player_position", "Pos"]
+    allow_null: true
+
+  - name: route
+    dtype: Categorical
+    aliases: ["route", "Route"]
+    allow_null: true # Only offense has this usually
 

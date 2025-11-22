@@ -1,0 +1,48 @@
+# configs/schema.yaml
+
+defaults:
+  # Global settings
+  try_parse_dates: false 
+  strict_columns: false # If true, error on missing cols. If false, fill with null/default.
+
+columns:
+  - name: gameId
+    dtype: Int64
+    aliases: ["gameId", "game_id", "GameId"]
+    
+  - name: playId
+    dtype: Int32
+    aliases: ["playId", "play_id", "PlayId"]
+
+  - name: frameId
+    dtype: Int32
+    aliases: ["frameId", "frame_id", "frame_Id"]
+    allow_null: true # Ball has no ID
+
+  - name: nflId
+    dtype: Int32
+    aliases: ["nflId", "nfl_id", "NflId"]
+    allow_null: true # Ball has no ID
+
+  - name: team
+    dtype: Categorical
+    aliases: ["team", "Team", "club", "Club"] # 2017 data used 'Team', 2022 uses 'club'
+    default: "UNKNOWN" # Older data won't have this, so we fill UNKNOWN
+
+  - name: s
+    dtype: Float32 # Optimized memory
+    aliases: ["s", "S", "speed", "dis"] # WARNING: 2017 'dis' is distance, not speed, but sometimes used as proxy. logic needed.
+    default: 0.0 # If column missing, fill with 0.0
+
+  - name: x
+    dtype: Float32
+    aliases: ["x", "X"]
+
+  - name: y
+    dtype: Float32
+    aliases: ["y", "Y"]
+
+  - name: playerRole
+    dtype: Categorical
+    aliases: ["player_role", "role"]
+    default: "UNKNOWN" # Older data won't have this, so we fill UNKNOWN

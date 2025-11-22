@@ -78,8 +78,8 @@ class NGSIngestor:
         print(f"Unique Plays: {df['playId'].n_unique()}")
         
         # Check for speed anomalies
-        max_speed = df['s'].max()
-        print(f"Max Speed seen: {max_speed} (Check if > 15 yards/sec)")
+        max_frame = df['frameId'].max()
+        print(f"Max frame id seen: {max_frame}")
         
         print("-------------------------")
 
