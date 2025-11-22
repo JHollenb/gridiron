@@ -1,4 +1,6 @@
 *.DS_Store
+*__pycache__
+
 downloads/
 data/raw_pool
 data/nfl-bdb/raw
