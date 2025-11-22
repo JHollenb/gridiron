@@ -43,7 +43,6 @@ st.sidebar.title("🏈 Play Selector")
 
 try:
     q = db.get_pool()
-    # Quick check
     try: q.collect().head()
     except: st.stop()
 
@@ -81,13 +80,11 @@ try:
                 .collect()
             )
 
-            # --- 🔍 DEBUG RESTORED ---
+            # --- 🔍 DEBUG ---
             with st.expander("🛠 Debug: Inspect Raw Data", expanded=False):
                 st.write(f"Rows: {play_df.height}")
                 st.write("Columns:", play_df.columns)
                 st.dataframe(play_df.head(5))
-                if "playerSide" in play_df.columns:
-                     st.write("Unique Sides:", play_df["playerSide"].unique().to_list())
 
             # --- PRE-CALC STATS ---
             total_frames = play_df["frameId"].max() if not play_df.is_empty() else 0
@@ -116,7 +113,7 @@ try:
             # --- PLOTLY FIGURE ---
             fig = go.Figure()
 
-            # Dark Field
+            # 1. FIELD LAYER (Static)
             fig.add_shape(type="rect", x0=0, y0=0, x1=120, y1=53.3, 
                           line=dict(color="rgba(255,255,255,0.8)", width=2),
                           fillcolor="#263c28", layer="below")
@@ -126,35 +123,78 @@ try:
                 fig.add_shape(type="line", x0=i, y0=0, x1=i, y1=53.3,
                               line=dict(color="rgba(255,255,255,0.3)", width=1), layer="below")
 
+            # 2. GHOST TRACES (Static - Future Paths)
+            # We iterate through unique players and draw their full lines first
+            # These will sit "under" the dots and won't move.
+            
+            # Colors
+            COLOR_HOME = "#00BFFF" # Deep Sky Blue
+            COLOR_AWAY = "#FF4500" # Orange Red
+            COLOR_BALL = "#FFD700" # Gold
+
+            def add_ghosts(df, color):
+                if "nflId" not in df.columns: return
+                # Get unique IDs (excluding nulls if any)
+                pids = df.filter(pl.col("nflId").is_not_null())["nflId"].unique().to_list()
+                for pid in pids:
+                    path = df.filter(pl.col("nflId") == pid)
+                    fig.add_trace(go.Scatter(
+                        x=path["x"], y=path["y"],
+                        mode="lines",
+                        line=dict(color=color, width=2),
+                        opacity=0.15, # Very faint
+                        showlegend=False,
+                        hoverinfo="skip" # Don't show tooltips for ghosts
+                    ))
+
+            add_ghosts(home, COLOR_HOME)
+            add_ghosts(away, COLOR_AWAY)
+            if has_ball:
+                # Ball ghost
+                fig.add_trace(go.Scatter(
+                    x=ball["x"], y=ball["y"], mode="lines", 
+                    line=dict(color=COLOR_BALL, width=2, dash="dot"), opacity=0.3, 
+                    showlegend=False, hoverinfo="skip"
+                ))
+
+
+            # 3. ACTIVE PLAYERS (Animated)
+            # NOTE: We switched from Scattergl to Scatter (SVG) to fix the disappearing bug.
+            
             def get_xy(df, frame):
                 f_df = df.filter(pl.col("frameId") == frame)
                 return f_df["x"], f_df["y"]
 
-            # Initial Traces
+            # Initial Traces (Frame 0)
             h_x, h_y = get_xy(home, frames[0])
             a_x, a_y = get_xy(away, frames[0])
             
-            fig.add_trace(go.Scattergl(x=h_x, y=h_y, mode="markers", marker=dict(size=12, color="#00BFFF", line=dict(color='white', width=1)), name="Offense"))
-            fig.add_trace(go.Scattergl(x=a_x, y=a_y, mode="markers", marker=dict(size=12, color="#FF4500", line=dict(color='white', width=1)), name="Defense"))
+            fig.add_trace(go.Scatter(x=h_x, y=h_y, mode="markers", marker=dict(size=12, color=COLOR_HOME, line=dict(color='white', width=1)), name="Offense"))
+            fig.add_trace(go.Scatter(x=a_x, y=a_y, mode="markers", marker=dict(size=12, color=COLOR_AWAY, line=dict(color='white', width=1)), name="Defense"))
 
             if has_ball:
                 b_x, b_y = get_xy(ball, frames[0])
-                fig.add_trace(go.Scattergl(x=b_x, y=b_y, mode="markers", marker=dict(size=8, color="#FFD700"), name="Ball"))
+                fig.add_trace(go.Scatter(x=b_x, y=b_y, mode="markers", marker=dict(size=8, color=COLOR_BALL), name="Ball"))
 
-            # Animation Frames
+            # 4. ANIMATION FRAMES
             animation_frames = []
             for f in frames:
                 h_x, h_y = get_xy(home, f)
                 a_x, a_y = get_xy(away, f)
-                frame_traces = [go.Scattergl(x=h_x, y=h_y), go.Scattergl(x=a_x, y=a_y)]
+                
+                # We only update the LAST 3 traces (Home, Away, Ball). 
+                # The ghost traces (indexes 0 to N) remain static and are ignored here.
+                frame_traces = [go.Scatter(x=h_x, y=h_y), go.Scatter(x=a_x, y=a_y)]
+                
                 if has_ball:
                     b_x, b_y = get_xy(ball, f)
-                    frame_traces.append(go.Scattergl(x=b_x, y=b_y))
-                animation_frames.append(go.Frame(data=frame_traces, name=str(f)))
+                    frame_traces.append(go.Scatter(x=b_x, y=b_y))
+                
+                animation_frames.append(go.Frame(data=frame_traces, name=str(f), traces=list(range(len(fig.data) - len(frame_traces), len(fig.data)))))
 
             fig.frames = animation_frames
 
-            # Layout (FIXED FOR ANIMATION)
+            # 5. LAYOUT CONFIG
             fig.update_layout(
                 height=600,
                 paper_bgcolor="black",
@@ -163,6 +203,7 @@ try:
                 xaxis=dict(range=[-5, 125], showgrid=False, visible=False, fixedrange=True),
                 yaxis=dict(range=[-5, 58], showgrid=False, visible=False, fixedrange=True),
                 legend=dict(orientation="h", y=1.05, x=0.5, xanchor="center"),
+                hovermode="closest",
                 updatemenus=[dict(
                     type="buttons",
                     showactive=False,
@@ -171,8 +212,8 @@ try:
                     buttons=[dict(
                         label="▶ Play",
                         method="animate",
-                        # FIX: redraw=True is slower but ensures Scattergl updates in Streamlit
-                        args=[None, dict(frame=dict(duration=100, redraw=True), fromcurrent=True)]
+                        # redraw=False is now SAFE because we use SVG (Scatter) not WebGL
+                        args=[None, dict(frame=dict(duration=100, redraw=False), fromcurrent=True)]
                     ),
                     dict(
                         label="⏸ Pause",
@@ -182,13 +223,15 @@ try:
                 )]
             )
             
-            # Add slider for manual scrubbing
+            # Slider
             sliders = [dict(
                 steps=[dict(method='animate', 
-                            args=[[str(f)], dict(mode='immediate', frame=dict(duration=0, redraw=True), transition=dict(duration=0))],
+                            args=[[str(f)], dict(mode='immediate', frame=dict(duration=0, redraw=False), transition=dict(duration=0))],
                             label=str(f)) for f in frames],
                 transition=dict(duration=0),
-                x=0.1, len=0.9, y=0
+                x=0.1, len=0.9, y=0,
+                currentvalue=dict(font=dict(size=15), prefix="Frame: ", visible=True, xanchor="right"),
+                font=dict(color="white")
             )]
             fig.update_layout(sliders=sliders)
 
