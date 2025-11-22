@@ -5,70 +5,43 @@ import os
 import yaml
 import polars as pl
 from pathlib import Path
+from tqdm import tqdm
 
 class NGSIngestor:
     def __init__(self, schema_path, output_dir):
-        with open(schema_path, "r") as f:
+        # Force absolute path resolution
+        self.output_dir = Path(output_dir).resolve()
+        self.schema_path = Path(schema_path).resolve()
+        
+        with open(self.schema_path, "r") as f:
             self.config = yaml.safe_load(f)
-        self.output_dir = Path(output_dir)
 
     def load_and_normalize(self, file_path):
         """
         Reads a CSV, applies aliases, casts types, and ensures schema compliance.
         """
-        print(f"Processing {file_path}...")
-        
-        # 1. Lazy Scan
-        # We don't provide schema_overrides here yet because names might be wrong
         q = pl.scan_csv(file_path, infer_schema_length=10000, ignore_errors=True)
-        
-        # Get actual columns in this file
-        actual_columns = q.columns
-        # actual_columns = q.collect_schema().names()
-        
+        actual_columns = q.collect_schema().names()
+        # actual_columns = q.columns
         selected_exprs = []
-        
-        # 2. Iterate through our Master Schema
         for col_def in self.config['columns']:
             target_name = col_def['name']
-            dtype_str = col_def['dtype']
-            dtype = getattr(pl, dtype_str)
-            
-            # A. Find the source column using aliases
-            source_col = None
-            # Check the target name itself first, then aliases
+            dtype = getattr(pl, col_def['dtype'])
             candidates = [target_name] + col_def.get('aliases', [])
+            source_col = next((c for c in candidates if c in actual_columns), None)
             
-            for candidate in candidates:
-                if candidate in actual_columns:
-                    source_col = candidate
-                    break
-            
-            # B. Build the Expression
             if source_col:
-                # Column exists: Rename -> Cast
                 expr = pl.col(source_col).cast(dtype).alias(target_name)
             else:
-                # Column missing: Generate Default
                 if 'default' in col_def:
-                    # Use provided default value
-                    default_val = col_def['default']
-                    expr = pl.lit(default_val).cast(dtype).alias(target_name)
+                    expr = pl.lit(col_def['default']).cast(dtype).alias(target_name)
                 elif col_def.get('allow_null', False):
-                    # Fill with Null
                     expr = pl.lit(None).cast(dtype).alias(target_name)
                 else:
-                    # Skip or Error (depending on strictness preference)
-                    # For now, we skip, but you could raise ValueError here
                     print(f"Warning: Missing required col '{target_name}' in {file_path}")
                     continue
-
             selected_exprs.append(expr)
-
-        # 3. Apply Transformations
-        q = q.select(selected_exprs)
-        
-        return q
+        return q.select(selected_exprs)
 
     def generate_summary(self, df: pl.DataFrame):
         """Generates stat summary for approval."""
@@ -83,36 +56,63 @@ class NGSIngestor:
         
         print("-------------------------")
 
-    def run(self, input_dir, dry_run=False):
-        # 1. Gather files
-        files = glob.glob(os.path.join(input_dir, "*.csv"))
-        if not files:
-            raise FileNotFoundError(f"No CSVs found in {input_dir}")
-
-        # 2. Process Loop
-        # We process eagerly here to partition safely, but could stay lazy for bigger RAM
-        for f in files:
-            lz_df = self.load_and_normalize(f)
-            df = lz_df.collect() # Materialize to memory for splitting
-            
-            self.generate_summary(df)
-
-            if dry_run:
-                print("Dry Run: Skipping write.")
+    def write_partitioned(self, df: pl.DataFrame):
+        """
+        Manually partitions data by GameId and writes to Season/Game folders.
+        Safe for appending.
+        """
+        # unique games in this batch
+        # We group by gameId to write distinct files
+        # partitioning: data/raw_pool/season=2023/gameId=2023090100/tracking.parquet
+        
+        # Iterate over each game in this CSV
+        for (game_id,), game_df in df.group_by(["gameId"]):
+            if game_id is None: 
                 continue
 
-            # 3. Partitioned Write
-            # We write: output_dir / gameId=XXXX / tracking.parquet
-            # Note: Often BDB data is one season per file. We partition by GameId.
-            print(f"Writing partition to {self.output_dir}...")
+            # Derive season from first 4 chars of gameId (e.g. 2022090800 -> 2022)
+            season = str(game_id)[:4]
             
-            # Polars partition write
-            df.write_parquet(
-                self.output_dir,
-                use_pyarrow=True,
-                partition_by=["gameId"] # Creates subfolders automatically
-            )
-            print("Write Complete.")
+            # Construct Target Directory
+            # Structure: raw_pool / season=XXXX / gameId=YYYY
+            target_dir = self.output_dir / f"season={season}" / f"gameId={game_id}"
+            target_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Construct Filename
+            # We use a fixed name "tracking.parquet". 
+            # If you process the SAME game twice, this overwrite ensures we update the data.
+            target_file = target_dir / "tracking.parquet"
+            
+            # Write (Eagerly)
+            game_df.write_parquet(target_file)
+
+    def run(self, input_dir, dry_run=False):
+        input_path = Path(input_dir).resolve()
+        files = glob.glob(str(input_path / "*.csv"))
+        
+        if not files:
+            raise FileNotFoundError(f"No CSVs found in {input_path}")
+
+        print(f"📂 Output Pool: {self.output_dir}")
+        
+        for f in tqdm(files, desc="Processing Files"):
+            try:
+                lz_df = self.load_and_normalize(f)
+                df = lz_df.collect() 
+                
+                if df.height == 0:
+                    print(f"⚠️ Warning: {f} resulted in 0 rows. Skipping.")
+                    continue
+
+                if dry_run:
+                    print(f"Dry Run: Parsed {df.height} rows from {Path(f).name}")
+                    continue
+
+                # Use the new explicit writer
+                self.write_partitioned(df)
+                
+            except Exception as e:
+                print(f"❌ Error processing {f}: {e}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
