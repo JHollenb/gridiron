@@ -11,7 +11,7 @@ from pathlib import Path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from src.query import GridironQuery
 
-# Page Config (Dark Mode Friendly)
+# Page Config
 st.set_page_config(
     page_title="Gridiron NGS", 
     layout="wide", 
@@ -19,7 +19,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- Helper: Reset State on Selection Change ---
+# --- Helper: Reset State ---
 def reset_play_state():
     st.session_state.render_triggered = False
 
@@ -38,13 +38,12 @@ def get_query_engine():
 db = get_query_engine()
 if db is None: st.stop()
 
-# --- Sidebar: Browser / Filtering ---
+# --- Sidebar ---
 st.sidebar.title("🏈 Play Selector")
 
 try:
-    # 1. Load Games
     q = db.get_pool()
-    # Quick existence check
+    # Quick check
     try: q.collect().head()
     except: st.stop()
 
@@ -53,7 +52,6 @@ try:
         
     selected_game = st.sidebar.selectbox("Select Game", sorted(games), on_change=reset_play_state)
 
-    # 2. Load Plays
     plays_in_game = (
         q.filter(pl.col("gameId") == selected_game)
         .select(["playId"]) 
@@ -66,18 +64,14 @@ try:
     # --- Main Area ---
     st.title(f"Game {selected_game} | Play {selected_play_id}")
 
-    # --- STATE MANAGEMENT ---
-    # This ensures the chart persists after interaction
     if "render_triggered" not in st.session_state:
         st.session_state.render_triggered = False
 
     if st.button("Render Play 🎬", type="primary"):
         st.session_state.render_triggered = True
 
-    # Only Run Calculation if Triggered
     if st.session_state.render_triggered:
         with st.spinner("Processing Tracking Data..."):
-            # 3. Fetch Data
             play_df = (
                 q.filter(
                     (pl.col("gameId") == selected_game) & 
@@ -87,34 +81,28 @@ try:
                 .collect()
             )
 
-            # --- DASHBOARD STATS CALCULATION ---
-            # Calculate these efficiently using Polars before plotting
-            total_frames = play_df["frameId"].max()
-            
-            # Handle speed (s) if it exists, else 0
+            # --- 🔍 DEBUG RESTORED ---
+            with st.expander("🛠 Debug: Inspect Raw Data", expanded=False):
+                st.write(f"Rows: {play_df.height}")
+                st.write("Columns:", play_df.columns)
+                st.dataframe(play_df.head(5))
+                if "playerSide" in play_df.columns:
+                     st.write("Unique Sides:", play_df["playerSide"].unique().to_list())
+
+            # --- PRE-CALC STATS ---
+            total_frames = play_df["frameId"].max() if not play_df.is_empty() else 0
             max_speed = play_df["s"].max() if "s" in play_df.columns else 0.0
-            
-            # Count players (unique nflIds excluding ball)
             n_players = play_df.filter(pl.col("nflId").is_not_null())["nflId"].n_unique()
-            
-            # Get Event Tags (unique events happening this play)
             events = []
             if "event" in play_df.columns:
                 events = play_df.filter(pl.col("event").is_not_null())["event"].unique().to_list()
 
-            # --- RENDER DASHBOARD ---
-            # We put this ABOVE the chart or below? Let's put it below as requested, 
-            # but calculating it here makes the code cleaner.
-            
-            # --- PLOT LOGIC ---
-            # Check side/team columns
+            # --- DATA SPLIT ---
             side_col = "playerSide" if "playerSide" in play_df.columns else "team"
             
-            # Case-insensitive filtering
             home = play_df.filter(pl.col(side_col).cast(pl.String).str.to_lowercase() == "offense")
             away = play_df.filter(pl.col(side_col).cast(pl.String).str.to_lowercase() == "defense")
             
-            # Ball Logic
             ball = play_df.filter(
                 (pl.col("nflId").is_null()) | (pl.col("nflId") == 0) | (pl.col(side_col) == "football")
             )
@@ -128,18 +116,16 @@ try:
             # --- PLOTLY FIGURE ---
             fig = go.Figure()
 
-            # Dark Mode Field
+            # Dark Field
             fig.add_shape(type="rect", x0=0, y0=0, x1=120, y1=53.3, 
-                          line=dict(color="rgba(255,255,255,0.8)", width=2), # White boundary
-                          fillcolor="#263c28", # Dark Grass Green
-                          layer="below")
+                          line=dict(color="rgba(255,255,255,0.8)", width=2),
+                          fillcolor="#263c28", layer="below")
             
-            # Yard Lines (Simplified)
+            # Yard Lines
             for i in range(10, 110, 10):
                 fig.add_shape(type="line", x0=i, y0=0, x1=i, y1=53.3,
                               line=dict(color="rgba(255,255,255,0.3)", width=1), layer="below")
 
-            # Helper
             def get_xy(df, frame):
                 f_df = df.filter(pl.col("frameId") == frame)
                 return f_df["x"], f_df["y"]
@@ -155,7 +141,7 @@ try:
                 b_x, b_y = get_xy(ball, frames[0])
                 fig.add_trace(go.Scattergl(x=b_x, y=b_y, mode="markers", marker=dict(size=8, color="#FFD700"), name="Ball"))
 
-            # Frames
+            # Animation Frames
             animation_frames = []
             for f in frames:
                 h_x, h_y = get_xy(home, f)
@@ -168,11 +154,11 @@ try:
 
             fig.frames = animation_frames
 
-            # Dark Mode Layout
+            # Layout (FIXED FOR ANIMATION)
             fig.update_layout(
                 height=600,
-                paper_bgcolor="black", # Outside the chart
-                plot_bgcolor="black",  # Behind the chart (but covered by our rect)
+                paper_bgcolor="black",
+                plot_bgcolor="black",
                 font=dict(color="white"),
                 xaxis=dict(range=[-5, 125], showgrid=False, visible=False, fixedrange=True),
                 yaxis=dict(range=[-5, 58], showgrid=False, visible=False, fixedrange=True),
@@ -185,25 +171,36 @@ try:
                     buttons=[dict(
                         label="▶ Play",
                         method="animate",
-                        args=[None, dict(frame=dict(duration=100, redraw=False), fromcurrent=True)]
+                        # FIX: redraw=True is slower but ensures Scattergl updates in Streamlit
+                        args=[None, dict(frame=dict(duration=100, redraw=True), fromcurrent=True)]
+                    ),
+                    dict(
+                        label="⏸ Pause",
+                        method="animate",
+                        args=[[None], dict(frame=dict(duration=0, redraw=False), mode="immediate", transition=dict(duration=0))]
                     )]
                 )]
             )
+            
+            # Add slider for manual scrubbing
+            sliders = [dict(
+                steps=[dict(method='animate', 
+                            args=[[str(f)], dict(mode='immediate', frame=dict(duration=0, redraw=True), transition=dict(duration=0))],
+                            label=str(f)) for f in frames],
+                transition=dict(duration=0),
+                x=0.1, len=0.9, y=0
+            )]
+            fig.update_layout(sliders=sliders)
 
             st.plotly_chart(fig, use_container_width=True)
 
-            # --- DASHBOARD ROW ---
+            # --- DASHBOARD ---
             st.markdown("### 📊 Play Telemetry")
             col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                st.metric("Duration", f"{total_frames / 10.0}s", f"{total_frames} frames")
-            with col2:
-                st.metric("Max Speed (Any Player)", f"{max_speed:.2f} mph")
-            with col3:
-                st.metric("Active Players", n_players)
+            with col1: st.metric("Duration", f"{total_frames / 10.0}s", f"{total_frames} frames")
+            with col2: st.metric("Max Speed", f"{max_speed:.2f} mph")
+            with col3: st.metric("Active Players", n_players)
             with col4:
-                # Display first 2 events found or "None"
                 event_str = ", ".join(events[:2]) if events else "None"
                 st.metric("Key Events", event_str)
 
