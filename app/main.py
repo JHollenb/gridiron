@@ -42,7 +42,7 @@ try:
     q = db.get_pool()
     # Check if data exists by trying to fetch 1 row
     try:
-        q.fetch(1)
+        q.collect().head()
     except Exception as e:
         st.error(f"Polars Scan Error: {e}")
         st.stop()
@@ -83,9 +83,11 @@ try:
         # --- The Optimizer: Plotly WebGL Animation ---
         
         # Split data for easier plotting
-        home = play_df.filter(pl.col("team") == "home")
-        away = play_df.filter(pl.col("team") == "away")
-        ball = play_df.filter(pl.col("team") == "football")
+        home = play_df.filter(pl.col("playerSide") == "Offense")
+        away = play_df.filter(pl.col("playerSide") == "Defense")
+        ball = play_df.filter(pl.col("nflId") == 0)
+        if ball is None:
+            print(f"WARNING - No ball data found")
         
         # Get Frames
         frames = sorted(play_df["frameId"].unique().to_list())
@@ -105,7 +107,7 @@ try:
             y=home.filter(pl.col("frameId") == frames[0])["y"],
             mode="markers",
             marker=dict(size=12, color="blue"),
-            name="Home"
+            name="Offense"
         ))
         
         # Away Team
@@ -114,17 +116,18 @@ try:
             y=away.filter(pl.col("frameId") == frames[0])["y"],
             mode="markers",
             marker=dict(size=12, color="red"),
-            name="Away"
+            name="Defense"
         ))
 
         # Ball
-        fig.add_trace(go.Scattergl(
-            x=ball.filter(pl.col("frameId") == frames[0])["x"],
-            y=ball.filter(pl.col("frameId") == frames[0])["y"],
-            mode="markers",
-            marker=dict(size=8, color="brown"),
-            name="Ball"
-        ))
+        if ball is not None:
+            fig.add_trace(go.Scattergl(
+                x=ball.filter(pl.col("frameId") == frames[0])["x"],
+                y=ball.filter(pl.col("frameId") == frames[0])["y"],
+                mode="markers",
+                marker=dict(size=8, color="brown"),
+                name="Ball"
+            ))
 
         # Construct Frames for Animation
         # This part can be slow in Python loops. For production, optimize this list comp.
@@ -132,18 +135,28 @@ try:
         for f in frames:
             frame_data = play_df.filter(pl.col("frameId") == f)
             
-            home_f = frame_data.filter(pl.col("team") == "home")
-            away_f = frame_data.filter(pl.col("team") == "away")
-            ball_f = frame_data.filter(pl.col("team") == "football")
+            home_f = frame_data.filter(pl.col("playerSide") == "Offense")
+            away_f = frame_data.filter(pl.col("playerSide") == "Defense")
+            if ball is not None:
+                ball_f = frame_data.filter(pl.col("nflId") == 0)
             
-            animation_frames.append(go.Frame(
-                data=[
-                    go.Scattergl(x=home_f["x"], y=home_f["y"]),
-                    go.Scattergl(x=away_f["x"], y=away_f["y"]),
-                    go.Scattergl(x=ball_f["x"], y=ball_f["y"])
-                ],
-                name=str(f)
-            ))
+                animation_frames.append(go.Frame(
+                    data=[
+                        go.Scattergl(x=home_f["x"], y=home_f["y"]),
+                        go.Scattergl(x=away_f["x"], y=away_f["y"]),
+                        go.Scattergl(x=ball_f["x"], y=ball_f["y"])
+                    ],
+                    name=str(f)
+                ))
+            else:
+                animation_frames.append(go.Frame(
+                    data=[
+                        go.Scattergl(x=home_f["x"], y=home_f["y"]),
+                        go.Scattergl(x=away_f["x"], y=away_f["y"]),
+                    ],
+                    name=str(f)
+                ))
+
 
         fig.frames = animation_frames
 

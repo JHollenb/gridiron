@@ -56,6 +56,11 @@ columns:
     allow_null: true # Ball sometimes lacks direction if stationary, only exists in some data
 
   # --- Player Metadata (Optional but helpful) ---
+  - name: playerSide
+    dtype: Categorical
+    aliases: ["playerSide", player_side"]
+    allow_null: true
+
   - name: position
     dtype: Categorical
     aliases: ["position", "player_position", "Pos"]
