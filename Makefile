@@ -26,6 +26,21 @@ test:
 	@echo "Testing"
 	$(UV) python scripts/random_plays_sampler.py $(TEST_IN_DIR)/$(TEST_IN) $(TEST_OUT) $(NUM_PLAYS) --seed 42
 
+generate-test-data: generate-test-data-2018 generate-test-data-2023
+
+generate-test-data-2018:
+	$(UV) python scripts/random_plays_sampler.py \
+		./data/nfl-bdb/2018/raw/week_data-full.csv \
+		./test_data/2018/2018-$(NUM_PLAYS)plays.csv \
+		--n $(NUM_PLAYS) --year 2018 --seed 42
+	@head ./test_data/2018/2018-$(NUM_PLAYS)plays.csv 
+
+generate-test-data-2023:
+	$(UV) python scripts/random_plays_sampler.py \
+		./data/nfl-bdb/raw/2026/train/input_2023_w01.csv \
+		./test_data/2023/2023-$(NUM_PLAYS)plays.csv \
+		--n $(NUM_PLAYS) --year 2023 --seed 42
+	@head ./test_data/2023/2023-$(NUM_PLAYS)plays.csv 
 
 server:
 	$(UV) streamlit run app/main.py
