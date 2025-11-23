@@ -22,22 +22,9 @@ columns:
     aliases: ["frameId", "frame_id", "FrameId"]
 
   # --- Time & Context ---
-  - name: time
-    dtype: String
-    aliases: ["time", "Time", "timestamp"]
-
   - name: playDirection
     dtype: Categorical
     aliases: ["playDirection", "play_direction"]
-
-  - name: event
-    dtype: Categorical
-    aliases: ["event", "Event"]
-    allow_null: true # Not every frame has an event tag
-
-  - name: team
-    dtype: Categorical
-    aliases: ["team", "Team", "club", "Club"]
 
   # --- Tracking Metrics (Physics) ---
   - name: x
@@ -58,11 +45,6 @@ columns:
     aliases: ["a", "A", "acc", "acceleration"]
     default: 0.0
 
-  - name: dis                                      # TODO - what is this
-    dtype: Float32
-    aliases: ["dis", "distance"]
-    default: 0.0                                    
-
   - name: o                                         # Orientation (degrees)
     dtype: Float32
     aliases: ["o", "O", "orientation"]
@@ -74,13 +56,12 @@ columns:
     allow_null: true # Ball sometimes lacks direction if stationary, only exists in some data
 
   # --- Player Metadata (Optional but helpful) ---
+  - name: playerSide
+    dtype: Categorical
+    aliases: ["playerSide", "player_side", "team"]
+    allow_null: true
+
   - name: position
     dtype: Categorical
     aliases: ["position", "player_position", "Pos"]
     allow_null: true
-
-  - name: route
-    dtype: Categorical
-    aliases: ["route", "Route"]
-    allow_null: true # Only offense has this usually
-

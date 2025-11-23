@@ -18,8 +18,12 @@ clean:
 	@echo "Cleaning pycache..."
 	find . -type d -name "__pycache__" -exec rm -rf {} +
 
-clean-data-pool:
+clean-db:
 	rm -rf $(OUTPUT)
+
+ingest-test-data: 
+	mkdir $(OUTPUT) || true
+	$(MAKE) ingest SCHEMA=./configs/bdb-2018-schema.yaml INPUT=./test_data/2018
 
 generate-test-data: generate-test-data-2018 generate-test-data-2023
 

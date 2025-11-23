@@ -1,39 +1,45 @@
 # configs/schema.yaml
-
 defaults:
-  # Global settings
-  try_parse_dates: false 
-  strict_columns: false # If true, error on missing cols. If false, fill with null/default.
+  strict_columns: false
 
 columns:
+  # --- Identifiers ---
   - name: gameId
     dtype: Int64
     aliases: ["gameId", "game_id", "GameId"]
-    
+
   - name: playId
     dtype: Int32
     aliases: ["playId", "play_id", "PlayId"]
 
-  - name: frameId
-    dtype: Int32
-    aliases: ["frameId", "frame_id", "frame_Id"]
-    allow_null: true # Ball has no ID
-
   - name: nflId
     dtype: Int32
     aliases: ["nflId", "nfl_id", "NflId"]
-    allow_null: true # Ball has no ID
+    allow_null: true
+
+  - name: frameId
+    dtype: Int32
+    aliases: ["frameId", "frame_id", "FrameId"]
+
+  # --- Time & Context ---
+  - name: time
+    dtype: String
+    aliases: ["time", "Time", "timestamp"]
+
+  - name: playDirection
+    dtype: Categorical
+    aliases: ["playDirection", "play_direction"]
+
+  - name: event
+    dtype: Categorical
+    aliases: ["event", "Event"]
+    allow_null: true # Not every frame has an event tag
 
   - name: team
     dtype: Categorical
-    aliases: ["team", "Team", "club", "Club"] # 2017 data used 'Team', 2022 uses 'club'
-    default: "UNKNOWN" # Older data won't have this, so we fill UNKNOWN
+    aliases: ["team", "Team", "club", "Club", "player_side"]
 
-  - name: s
-    dtype: Float32 # Optimized memory
-    aliases: ["s", "S", "speed", "dis"] # WARNING: 2017 'dis' is distance, not speed, but sometimes used as proxy. logic needed.
-    default: 0.0 # If column missing, fill with 0.0
-
+  # --- Tracking Metrics (Physics) ---
   - name: x
     dtype: Float32
     aliases: ["x", "X"]
@@ -42,7 +48,39 @@ columns:
     dtype: Float32
     aliases: ["y", "Y"]
 
-  - name: playerRole
+  - name: s
+    dtype: Float32
+    aliases: ["s", "S", "speed"]
+    default: 0.0
+
+  - name: a
+    dtype: Float32
+    aliases: ["a", "A", "acc", "acceleration"]
+    default: 0.0
+
+  - name: dis                                      # TODO - what is this
+    dtype: Float32
+    aliases: ["dis", "distance"]
+    default: 0.0                                    
+
+  - name: o                                         # Orientation (degrees)
+    dtype: Float32
+    aliases: ["o", "O", "orientation"]
+    allow_null: true # Ball usually doesn't have orientation
+
+  - name: dir                                       # Direction of motion (degrees)
+    dtype: Float32
+    aliases: ["dir", "Dir", "direction"]
+    allow_null: true # Ball sometimes lacks direction if stationary, only exists in some data
+
+  # --- Player Metadata (Optional but helpful) ---
+  - name: position
     dtype: Categorical
-    aliases: ["player_role", "role"]
-    default: "UNKNOWN" # Older data won't have this, so we fill UNKNOWN
+    aliases: ["position", "player_position", "Pos"]
+    allow_null: true
+
+  - name: route
+    dtype: Categorical
+    aliases: ["route", "Route"]
+    allow_null: true # Only offense has this usually
+
