@@ -96,9 +96,10 @@ try:
 
             # --- DATA SPLIT ---
             side_col = "playerSide" if "playerSide" in play_df.columns else "team"
-            
-            home = play_df.filter(pl.col(side_col).cast(pl.String).str.to_lowercase() == "offense")
-            away = play_df.filter(pl.col(side_col).cast(pl.String).str.to_lowercase() == "defense")
+            player_side = pl.col(side_col).cast(pl.String).str.to_lowercase()
+
+            home = play_df.filter((player_side == "home") | (player_side == "offense")) 
+            away = play_df.filter((player_side == "away") | (player_side == "defense")) 
             
             ball = play_df.filter(
                 (pl.col("nflId").is_null()) | (pl.col("nflId") == 0) | (pl.col(side_col) == "football")

@@ -10,10 +10,6 @@ POOL = $(OUTPUT)
 DUMP_FILE = 'test.csv'
 NUM_PLAYS = 20
 
-TEST_IN_DIR = data/nfl-bdb/2018/raw
-TEST_IN = week_data-full.csv
-TEST_OUT = test_data/n$(NUM_PLAYS)_$(TEST_IN)
-
 setup:
 	@echo "Installing dependencies with uv..."
 	uv sync
@@ -22,9 +18,8 @@ clean:
 	@echo "Cleaning pycache..."
 	find . -type d -name "__pycache__" -exec rm -rf {} +
 
-test:
-	@echo "Testing"
-	$(UV) python scripts/random_plays_sampler.py $(TEST_IN_DIR)/$(TEST_IN) $(TEST_OUT) $(NUM_PLAYS) --seed 42
+clean-data-pool:
+	rm -rf $(OUTPUT)
 
 generate-test-data: generate-test-data-2018 generate-test-data-2023
 
@@ -56,6 +51,7 @@ ingest-dry:
 # Usage: make ingest INPUT=./downloads/2022
 ingest:
 	$(UV) python src/ingest.py --input $(INPUT) --schema $(SCHEMA) --output $(OUTPUT)
+	cp $(SCHEMA) $(OUTPUT)-schema.yaml
 
 dump:
 	$(UV) python src/export.py --pool $(POOL) --num-plays $(NUM_PLAYS) --output $(DUMP_FILE)
